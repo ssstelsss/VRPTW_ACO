@@ -11,6 +11,7 @@ if __name__ == '__main__':
     show_figure = True
 
     graph = VrptwGraph(file_path)
+    print(graph)
     basic_aco = BasicACO(graph, ants_num=ants_num, max_iter=max_iter, beta=beta, q0=q0,
                          whether_or_not_to_show_figure=show_figure)
 

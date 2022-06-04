@@ -7,6 +7,7 @@ from threading import Event
 class Ant:
     def __init__(self, graph: VrptwGraph, start_index=0):
         super()
+        # TODO: неоптимально хранить целый граф в каждом из инстансов муравья
         self.graph = graph
         self.current_index = start_index
         self.vehicle_load = 0
@@ -24,23 +25,24 @@ class Ant:
         self.index_to_visit.clear()
 
     def move_to_next_index(self, next_index):
-        # 更新蚂蚁路径
-        self.travel_path.append(next_index)
-        self.total_travel_distance += self.graph.node_dist_mat[self.current_index][next_index]
-
         dist = self.graph.node_dist_mat[self.current_index][next_index]
+
+        # добавить новый узел в маршрут маравья
+        self.travel_path.append(next_index)
+        self.total_travel_distance += dist
+
         self.arrival_time.append(self.vehicle_travel_time + dist)
 
+        # если следующий узел депо, то обнуляем загрузку и время в пути
         if self.graph.nodes[next_index].is_depot:
-            # 如果一下个位置为服务器点，则要将车辆负载等清空
             self.vehicle_load = 0
             self.vehicle_travel_time = 0
-
         else:
-            # 更新车辆负载、行驶距离、时间
+            # добавляем требование нового узла в загрузку ТС
             self.vehicle_load += self.graph.nodes[next_index].demand
-            # 如果早于客户要求的时间窗(ready_time)，则需要等待
 
+            # увеличиваем время в пути, с учетом времени на дорогу, возможного времени ожидания (если прибыли раньше)
+            # и времени на обслуживание узла
             self.vehicle_travel_time += dist + max(self.graph.nodes[next_index].ready_time - self.vehicle_travel_time - dist, 0) + self.graph.nodes[next_index].service_time
             self.index_to_visit.remove(next_index)
 
@@ -54,10 +56,11 @@ class Ant:
 
     def check_condition(self, next_index) -> bool:
         """
-        检查移动到下一个点是否满足约束条件
+        проверка удовлетворяет ли узел next_index ограничениям
         :param next_index:
         :return:
         """
+        # проверка на загрузку
         if self.vehicle_load + self.graph.nodes[next_index].demand > self.graph.vehicle_capacity:
             return False
 
@@ -65,11 +68,11 @@ class Ant:
         wait_time = max(self.graph.nodes[next_index].ready_time - self.vehicle_travel_time - dist, 0)
         service_time = self.graph.nodes[next_index].service_time
 
-        # 检查访问某一个旅客之后，能否回到服务店
+        # проверка на время возврата в депо
         if self.vehicle_travel_time + dist + wait_time + service_time + self.graph.node_dist_mat[next_index][0] > self.graph.nodes[0].due_time:
             return False
 
-        # 不可以服务due time之外的旅客
+        # проверка на время окончания приема узла после пути до этого узла
         if self.vehicle_travel_time + dist > self.graph.nodes[next_index].due_time:
             return False
 
@@ -77,7 +80,7 @@ class Ant:
 
     def cal_next_index_meet_constrains(self):
         """
-        找出所有从当前位置（ant.current_index）可达的customer
+        найти все узлы доступные из текущего узла, учитывая ограничения
         :return:
         """
         next_index_meet_constrains = []
@@ -88,8 +91,7 @@ class Ant:
 
     def cal_nearest_next_index(self, next_index_list):
         """
-        从待选的customers中选择，离当前位置（ant.current_index）最近的customer
-
+        Выбор из доступных узлов, ближайшего к текущему местоположению (ant.current_index)
         :param next_index_list:
         :return:
         """
@@ -117,9 +119,9 @@ class Ant:
 
     def try_insert_on_path(self, node_id, stop_event: Event):
         """
-        尝试性地将node_id插入当前的travel_path中
-        插入的位置不能违反载重，时间，行驶距离的限制
-        如果有多个位置，则找出最优的位置
+        Попытка вставить node_id в текущий travel_path
+        Вставленные локации не могут нарушать ограничения по нагрузке, времени и расстоянию
+        Если есть несколько позиций, найти лучшую позицию
         :param node_id:
         :return:
         """
@@ -135,26 +137,25 @@ class Ant:
             if self.graph.nodes[self.travel_path[insert_index]].is_depot:
                 continue
 
-            # 找出insert_index的前面的最近的depot
+            # Найти ближайшее депо до insert_index
             front_depot_index = insert_index
             while front_depot_index >= 0 and not self.graph.nodes[self.travel_path[front_depot_index]].is_depot:
                 front_depot_index -= 1
             front_depot_index = max(front_depot_index, 0)
 
-            # check_ant从front_depot_index出发
+            # check_ant начинается с front_depot_index
             check_ant = Ant(self.graph, self.travel_path[front_depot_index])
 
-            # 让check_ant 走过 path中下标从front_depot_index开始到insert_index-1的点
+            # Пусть check_ant пройдет точку пути, где индекс начинается с front_depot_index до insert_index-1.
             for i in range(front_depot_index+1, insert_index):
                 check_ant.move_to_next_index(self.travel_path[i])
 
-            # 开始尝试性地对排序后的index_to_visit中的结点进行访问
             if check_ant.check_condition(node_id):
                 check_ant.move_to_next_index(node_id)
             else:
                 continue
 
-            # 如果可以到node_id，则要保证vehicle可以行驶回到depot
+            # Если вы можете добраться до node_id, убедитесь, что ТС может вернуться в депо.
             for next_ind in self.travel_path[insert_index:]:
 
                 if stop_event.is_set():
@@ -164,7 +165,6 @@ class Ant:
                 if check_ant.check_condition(next_ind):
                     check_ant.move_to_next_index(next_ind)
 
-                    # 如果回到了depot
                     if self.graph.nodes[next_ind].is_depot:
                         temp_front_index = self.travel_path[insert_index-1]
                         temp_back_index = self.travel_path[insert_index]
@@ -177,7 +177,7 @@ class Ant:
                             best_insert_index = insert_index
                         break
 
-                # 如果不可以回到depot，则返回上一层
+                # Если не получается вернуться в депо, возвращаемся на предыдущий уровень
                 else:
                     break
 
@@ -185,22 +185,21 @@ class Ant:
 
     def insertion_procedure(self, stop_even: Event):
         """
-        为每个未访问的结点尝试性地找到一个合适的位置，插入到当前的travel_path
-        插入的位置不能违反载重，时间，行驶距离的限制
+        Попытка найти подходящее место для каждого непосещенного узла и вставьте его в текущий travel_path.
+        Вставленные узлы не могут нарушать ограничения по нагрузке, времени и расстоянию
         :return:
         """
         if self.index_to_visit_empty():
             return
 
         success_to_insert = True
-        # 直到未访问的结点中没有一个结点可以插入成功
-        while success_to_insert:
 
+        while success_to_insert:
             success_to_insert = False
-            # 获取未访问的结点
+            # копия непосещенных узлов
             ind_to_visit = np.array(copy.deepcopy(self.index_to_visit))
 
-            # 获取为访问客户点的demand，降序排序
+            # спрос всех непосещенных узлов, отсортированный по убыванию
             demand = np.zeros(len(ind_to_visit))
             for i, ind in zip(range(len(ind_to_visit)), ind_to_visit):
                 demand[i] = self.graph.nodes[ind].demand
@@ -230,13 +229,13 @@ class Ant:
     @staticmethod
     def local_search_once(graph: VrptwGraph, travel_path: list, travel_distance: float, i_start, stop_event: Event):
 
-        # 找出path中所有的depot的位置
+        # найти расположение всех депо на пути
         depot_ind = []
         for ind in range(len(travel_path)):
             if graph.nodes[travel_path[ind]].is_depot:
                 depot_ind.append(ind)
 
-        # 将self.travel_path分成多段，每段以depot开始，以depot结束，称为route
+        # Разделим self.travel_path на несколько сегментов, каждый сегмент начинается с депо и заканчивающийся депо, назовем route
         for i in range(i_start, len(depot_ind)):
             for j in range(i + 1, len(depot_ind)):
 
@@ -262,7 +261,7 @@ class Ant:
                                 if not graph.nodes[new_path[depot_before_start_b]].is_depot:
                                     raise RuntimeError('error')
 
-                                # 判断发生改变的route a是否是feasible的
+                                # определить допустим ли измененный маршрут route a
                                 success_route_a = False
                                 check_ant = Ant(graph, new_path[depot_before_start_a])
                                 for ind in new_path[depot_before_start_a + 1:]:
@@ -277,7 +276,7 @@ class Ant:
                                 check_ant.clear()
                                 del check_ant
 
-                                # 判断发生改变的route b是否是feasible的
+                                # определить допустим ли измененный маршрут route b
                                 success_route_b = False
                                 check_ant = Ant(graph, new_path[depot_before_start_b])
                                 for ind in new_path[depot_before_start_b + 1:]:
@@ -296,7 +295,7 @@ class Ant:
                                     if new_path_distance < travel_distance:
                                         # print('success to search')
 
-                                        # 删除路径中连在一起的depot中的一个
+                                        # Удалить одно из депо, связанных друг с другом в пути
                                         for temp_ind in range(1, len(new_path)):
                                             if graph.nodes[new_path[temp_ind]].is_depot and graph.nodes[new_path[temp_ind - 1]].is_depot:
                                                 new_path.pop(temp_ind)
@@ -309,7 +308,7 @@ class Ant:
 
     def local_search_procedure(self, stop_event: Event):
         """
-        对当前的已经访问完graph中所有节点的travel_path使用cross进行局部搜索
+        Используйте cross, чтобы выполнить локальный поиск по текущему travel_path, который посетил все узлы в graph.
         :return:
         """
         new_path = copy.deepcopy(self.travel_path)
@@ -326,7 +325,7 @@ class Ant:
                 new_path = temp_path
                 new_path_distance = temp_distance
 
-                # 设置i_start
+                # установить i_start
                 i_start = (i_start + 1) % (new_path.count(0)-1)
                 i_start = max(i_start, 1)
             else:
