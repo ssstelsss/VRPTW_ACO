@@ -3,7 +3,7 @@ from basic_aco import BasicACO
 
 
 if __name__ == '__main__':
-    file_path = './solomon-100/c101.txt'
+    file_path = './data/test.txt'
     ants_num = 10
     max_iter = 200
     beta = 2
