@@ -147,11 +147,13 @@ class BasicACO:
 
         # normalize
         sum_tran_prob = np.sum(transition_prob)
-        norm_transition_prob = transition_prob/sum_tran_prob
+        # norm_transition_prob = transition_prob/sum_tran_prob
+
+        return random.choice(index_to_visit)
 
         # select: O(1)
-        while True:
-            # randomly select an individual with uniform probability
-            ind = int(N * random.random())
-            if random.random() <= norm_transition_prob[ind]:
-                return index_to_visit[ind]
+        # while True:
+        #     # randomly select an individual with uniform probability
+        #     ind = int(N * random.random())
+        #     if random.random() <= norm_transition_prob[ind]:
+        #         return index_to_visit[ind]

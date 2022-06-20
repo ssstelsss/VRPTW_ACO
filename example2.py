@@ -8,7 +8,7 @@ if __name__ == '__main__':
     max_iter = 200
     beta = 2
     q0 = 0.1
-    show_figure = True
+    show_figure = False
 
     graph = VrptwGraph(file_path)
     print(graph)
